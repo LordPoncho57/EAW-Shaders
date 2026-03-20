@@ -95,7 +95,7 @@ VS_OUTPUT sph_bump_spec_vs_main(VS_INPUT_MESH In)
     Out.LightVector = Compute_Tangent_Space_Light_Vector(m_light0ObjVector,to_tangent_matrix);
     Out.HalfAngleVector = Compute_Tangent_Space_Half_Vector(In.Pos,m_eyePosObj,m_light0ObjVector,to_tangent_matrix);
 
-    // Get view vector - Code orrowed from grass shader
+    // Get view vector - Code borrowed from grass shader
     float3 view_vec = (float3)m_worldViewInv[2];
     Out.ViewVector = float3(view_vec.x,-view_vec.y,0.0f);
     Out.ViewVector = normalize(Out.ViewVector);
@@ -118,7 +118,9 @@ VS_OUTPUT sph_bump_spec_vs_main(VS_INPUT_MESH In)
 float2 ParallaxCalculation(float2 texCoord, float3 viewDir)
 {
     // Establish steep parallax values
-    //int numLayers = ParallaxStep;
+    //int numLayers = ParallaxLayer;
+    //ParallaxLayer = 41.0; // Max of 41 with 2.0b
+    ParallaxLayer = 40;     // Can't get parameter to work
     float layerSize = 1.0 / (float)ParallaxLayer;
     float layerDepth = 0.0;
 
@@ -184,5 +186,6 @@ float4 bump_spec_colorize_ps_main(VS_OUTPUT In): COLOR
     // put it all together
     float3 diff = baseTexel * (ndotl*Diffuse*m_light0Diffuse*m_lightScale.rgb + In.Diff.rgb) * 2.0;
     float3 spec = m_light0Specular*Specular*pow(ndoth,16)*normalTexel.a;
+
     return float4(diff + spec, In.Diff.a);
 }

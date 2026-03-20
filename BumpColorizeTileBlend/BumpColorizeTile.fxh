@@ -25,11 +25,10 @@ float  UVOffsetY     <string UIName = "UV Offset Y";>   = 0.0f;
 float  UVScaleFactor <string UIName = "Texture Scale";> = 1.0f;
 
 // BaseTexture   : RGB - Color map
-//                   A - Tint mask
-//
-// NormalTexture :  RG - Normal map
-//                   B - Ambient occlusion map
-//                   A - Gloss map
+// NormalTexture : RG  - Normal map
+//                 A   - Gloss map
+// MaskTexture   : R   - Ambient occlusion map
+//                 G   - Tint mask
 
 texture BaseTexture 
 < 
@@ -42,6 +41,18 @@ texture NormalTexture
     string UIName = "NormalTexture";
     string UIType = "bitmap";
     bool DiscardableBump = true;
+>;
+
+texture MaskTexture
+<
+    string UIName = "MaskTexture";
+    string UIType = "bitmap"; 
+>;
+
+texture BlendTexture
+<
+    string UIName = "BlendTexture";
+    string UIType = "bitmap"; 
 >;
 
 // **********************
@@ -61,6 +72,28 @@ sampler BaseSampler = sampler_state
 sampler NormalSampler = sampler_state
 {
     Texture   = (NormalTexture);
+	MipFilter = ANISOTROPIC;
+    MinFilter = ANISOTROPIC;
+    MagFilter = ANISOTROPIC;
+	MaxAnisotropy = 16;
+    AddressU  = WRAP;        
+    AddressV  = WRAP;
+};
+
+sampler MaskSampler = sampler_state
+{
+    Texture   = (MaskTexture);
+	MipFilter = ANISOTROPIC;
+    MinFilter = ANISOTROPIC;
+    MagFilter = ANISOTROPIC;
+	MaxAnisotropy = 16;
+    AddressU  = WRAP;        
+    AddressV  = WRAP;
+};
+
+sampler BlendSampler = sampler_state
+{
+    Texture   = (BlendTexture);
 	MipFilter = ANISOTROPIC;
     MinFilter = ANISOTROPIC;
     MagFilter = ANISOTROPIC;
@@ -134,7 +167,6 @@ VS_OUTPUT sph_bump_vs_main(VS_INPUT_MESH In) // DX 8
 {
     VS_OUTPUT Out = (VS_OUTPUT)0;
 
-    // Texture Projection controls
     Out.Pos = mul(In.Pos,m_worldViewProj);
     Out.TileCoord = (In.Tex + float2(UVOffsetX, UVOffsetY)) * UVScaleFactor;
     Out.BaseCoord = In.Tex;
@@ -160,54 +192,68 @@ VS_OUTPUT sph_bump_vs_main(VS_INPUT_MESH In) // DX 8
     return Out;
 }
 
+//******************************************************************************
+// Multiplies or screens the colors, depending on the base color. 
+//******************************************************************************
+float BlendMode_Overlay(float base, float blend)
+{
+	return (base <= 0.5) ? 2*base*blend : 1 - 2*(1-base)*(1-blend);
+}
+
+float3 BlendMode_Overlay(float3 base, float3 blend)
+{
+	return float3(  BlendMode_Overlay(base.r, blend.r), 
+					BlendMode_Overlay(base.g, blend.g), 
+					BlendMode_Overlay(base.b, blend.b) );
+}
+
 // **********************
 // Pixel Shader Functions
 // **********************
-float4 bump_spec_colorize_ps_main(VS_OUTPUT In) : COLOR // DX 9
+float4 bump_spec_colorize_ps_main(VS_OUTPUT In): COLOR // DX 9
 {
     // Texture Samples
-    float3 texelBase = tex2D(BaseSampler,   In.TileCoord);
-    float4 texelNorm = tex2D(NormalSampler, In.TileCoord);
-    float  texelTint = tex2D(BaseSampler,   In.BaseCoord).a;
-    float  texelAO   = tex2D(NormalSampler, In.BaseCoord).b;
+    float4 baseTexel   = tex2D(BaseSampler,   In.TileCoord);
+    float4 normalTexel = tex2D(NormalSampler, In.TileCoord);
+    float2 maskTexel   = tex2D(MaskSampler,  In.BaseCoord);
+    float4 blendTexel  = tex2D(BlendSampler, In.BaseCoord);
 
-    // Faction Tinting
-    float3 surfaceColor = lerp(texelBase, (Colorization * texelBase), texelTint);
-    surfaceColor = surfaceColor * texelAO;
+    float3 surfaceColor = lerp(baseTexel.rgb, Colorization * baseTexel.rgb, maskTexel.y);               // Faction color
+    surfaceColor = lerp(surfaceColor, BlendMode_Overlay(surfaceColor, blendTexel.rgb), blendTexel.a); // Blending colors (IE: Accents)
+    surfaceColor = surfaceColor * maskTexel.x;                                                         // Ambient occlusion blending
 
     // Lighting Calculations
-    float3 vecNorm  = 2.0f * (float3(texelNorm.rg, 1.0f) - 0.5f); // Blue channel holds AO data, and causes issues anyways. So this sets it to 1.0 always
-    float3 vecLight = 2.0f * (In.LightVector - 0.5f);
-    float3 vecHalf  = 2.0f * (In.HalfAngleVector - 0.5f);
+    float3 norm_vec  = 2.0f * (normalTexel.rgb - 0.5f);
+    float3 light_vec = 2.0f * (In.LightVector - 0.5f);
+    float3 half_vec  = 2.0f * (In.HalfAngleVector - 0.5f);
 
-    float ndotl = saturate(dot(vecNorm, vecLight));  
-    float ndoth = saturate(dot(vecNorm, vecHalf));
+    float ndotl = saturate(dot(norm_vec, light_vec));
+    float ndoth = saturate(dot(norm_vec, half_vec));
 
     // put it all together
-    float3 diffuse = surfaceColor * (ndotl * Diffuse * m_light0Diffuse * m_lightScale.rgb + In.Diff.rgb) * 2.0;
-    float3 specular = In.Spec * texelNorm.a;
-    return float4(diffuse + specular, In.Diff.a);
+    float3 diff = surfaceColor * (ndotl * Diffuse * m_light0Diffuse * m_lightScale.rgb + In.Diff.rgb) * 2.0;
+    float3 spec = m_light0Specular * Specular * pow(ndoth,16) * normalTexel.a;
+    return float4(diff + spec, In.Diff.a);
 }
 
 half4 bump_colorize_ps_main(VS_OUTPUT In) : COLOR // DX 8
 {
     // Texture Samples
-    half3 texelBase = tex2D(BaseSampler,   In.TileCoord);
-    half4 texelNorm = tex2D(NormalSampler, In.TileCoord);
-    half  texelTint = tex2D(BaseSampler,   In.BaseCoord).a;
-    half  texelAO   = tex2D(NormalSampler, In.BaseCoord).b;
+    half4 base_texel = tex2D(BaseSampler,  In.TileCoord);
+    half4 norm_texel = tex2D(NormalSampler,In.TileCoord);
+    half2 mask_texel = tex2D(MaskSampler,  In.BaseCoord);
 
     // Faction Tinting
-    half3 surfaceColor = lerp(texelBase, (Colorization * texelBase), texelTint);
-    surfaceColor = surfaceColor * texelAO;
+    half3 surface_color = lerp(base_texel.rgb,Colorization*base_texel.rgb,mask_texel.y);
+    surface_color = surface_color * mask_texel.x;
 
     // Lighting Calculations
-    half3 vecNorm  = 2.0f * (half3(texelNorm.rg, 1.0f) - 0.5f); // Blue channel holds AO data, and causes issues anyways. So this sets it to 1.0 always
-    half3 vecLight = 2.0f * (In.LightVector - 0.5f);
-    half ndotl = saturate(dot(vecNorm, vecLight));  
+    half3 norm_vec = 2.0f*(norm_texel.rgb - 0.5f);
+    half3 light_vec = 2.0f*(In.LightVector - 0.5f);
+    half ndotl = saturate(dot(norm_vec,light_vec));  
 
     // put it all together
-    half3 diffuse = surfaceColor * (ndotl * Diffuse * m_light0Diffuse * m_lightScale.rgb + In.Diff.rgb) * 2.0;
-    half3 specular = In.Spec * texelNorm.a;
+    half3 diffuse = surface_color * (ndotl*Diffuse*m_light0Diffuse*m_lightScale.rgb + In.Diff.rgb) * 2.0;
+    half3 specular = In.Spec * norm_texel.a;
     return half4(diffuse + specular, In.Diff.a);
 }

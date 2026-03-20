@@ -7,7 +7,7 @@ bool _ALAMO_SHADOW_VOLUME = false;
 #include "BumpColorizeParallax.fxh"
 
 vertexshader sph_bump_spec_vs_main_bin = compile vs_1_1 sph_bump_spec_vs_main();
-pixelshader bump_spec_colorize_ps_main_bin = compile ps_3_0 bump_spec_colorize_ps_main();
+pixelshader bump_spec_colorize_ps_main_bin = compile ps_2_b bump_spec_colorize_ps_main();
 
 //////////////////////////////////////
 // Techniques follow

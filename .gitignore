@@ -1,3 +1,9 @@
 *.lnk
 *.fxo
+*.mtl
+*.obj
+*.dds
+*.tga
 AlamoEngine.fxh
+_Reference
+fxc.exe
