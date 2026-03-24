@@ -101,7 +101,6 @@ struct VS_OUTPUT {
     float2  Tex0            : TEXCOORD0;
     float2  Tex1            : TEXCOORD1;
     float3  LightVector     : TEXCOORD2;
-    float3  ViewVector      : TEXCOORD3;
-    float3  HalfVector      : TEXCOORD4;
+    float3  HalfAngleVector : TEXCOORD3;
     float   Fog             : FOG;
 };
