@@ -100,10 +100,8 @@ struct VS_OUTPUT {
     float4  Spec            : COLOR1;
     float2  Tex0            : TEXCOORD0;
     float2  Tex1            : TEXCOORD1;
-    float3  LightVector1    : TEXCOORD2;
-    float3  LightVector2    : TEXCOORD3;
-    float3  LightVector3    : TEXCOORD4;
-    float3  LightVector4    : TEXCOORD5;
-    float3  ViewVector      : TEXCOORD6;
+    float3  LightVector     : TEXCOORD2;
+    float3  LightVectorInv  : TEXCOORD3;
+    float3  ViewVector      : TEXCOORD4;
     float   Fog             : FOG;
 };

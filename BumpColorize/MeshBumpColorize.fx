@@ -90,9 +90,15 @@ float4 bump_spec_colorize_ps_main(VS_OUTPUT In): COLOR {
     float3 surface_color = lerp(baseTexel.rgb, Colorization*baseTexel.rgb, baseTexel.a);
     
     float3 N = (2.0f * (float3(normalTexel.rg, 1.0f) - 0.5f));
-    float3 L = 2.0f*(In.LightVector1 - 0.5f);
     float3 V = 2.0f*(In.ViewVector - 0.5f);
+
+    float3 L = 2.0f*(In.LightVector - 0.5f);
+    float3 L_Inv = 2.0f*(In.LightVectorInv - 0.5f);
+
     float3 H = normalize(L + V);
+    float3 H_Inv = normalize(L_Inv + V);
+
+    float NdotV = normalize(saturate(dot(N, V)));
 
     // Convert maps for legacy support
     // Normal.Alpha - Usually houses gloss, this converts to roughness with a minimum of 0.04 to prevent reflections breaking
@@ -108,56 +114,49 @@ float4 bump_spec_colorize_ps_main(VS_OUTPUT In): COLOR {
     //metallic = 1.0f;
     metallic = max((1.0f - metallic), 0.04);
 
-    // Moving clockwise
-    // = normalize(float3(L.x, L.y, -L.z));
-    float3 L2 = 2.0f*(In.LightVector2 - 0.5f);
-    float3 L3 = 2.0f*(In.LightVector3 - 0.5f);
-    float3 L4 = 2.0f*(In.LightVector4 - 0.5f);
-
-    //float3 L2 = RotateZ(L, PI);
-    //float3 L3 = normalize(float3(-L.x, -L.y, -L.z));
-    //float3 L4 = RotateZ(L3, PI);
-
-    float3 H2 = normalize(L2 + V);
-    //float3 H2 = RotateZ(H, PI);
-    float3 H3 = normalize(L3 + V);
-    float3 H4 = normalize(L4 + V);
-    //float3 H4 = RotateZ(H3, PI);
 
     float NdotL = saturate(dot(N, L));
     float NdotH = saturate(dot(N, H));
     float VdotH = saturate(dot(V, H));
 
-    float NdotL2 = saturate(dot(N, L2));
-    float NdotH2 = saturate(dot(N, H2));
-    float VdotH2 = saturate(dot(V, H2));
+    float NdotL_Inv = saturate(dot(N, L_Inv));
+    float NdotH_Inv = saturate(dot(N, H_Inv));
+    float VdotH_Inv = saturate(dot(V, H_Inv));
 
-    float NdotL3 = saturate(dot(N, L3));
-    float NdotH3 = saturate(dot(N, H3));
-    float VdotH3 = saturate(dot(V, H3));
+    // Rotate about the surface normal
+    // V = 2 * dot(V, N) / ||V|| * N - V;
+    // Where V is an arbitrary vector being rotated about the surface normal
+    float3 L_180 = 2 * NdotL / (L.x * L.x + L.y * L.y + L.z * L.z) * N - L;
+    float3 L_Inv180 = 2 * NdotL_Inv / (L_Inv.x * L_Inv.x + L_Inv.y * L_Inv.y + L_Inv.z * L_Inv.z) * N - L_Inv;
 
-    float NdotL4 = saturate(dot(N, L4));
-    float NdotH4 = saturate(dot(N, H4));
-    float VdotH4 = saturate(dot(V, H4));
+    float3 H_180 = normalize(L_180 + V);
+    float3 H_Inv180 = normalize(L_Inv180 + V);
 
-    float NdotV = saturate(dot(N, V));
+    float NdotL_180 = saturate(dot(N, L_180));
+    float NdotH_180 = saturate(dot(N, H_180));
+    float VdotH_180 = saturate(dot(V, H_180));
+
+    float NdotL_Inv180 = saturate(dot(N, L_Inv180));
+    float NdotH_Inv180 = saturate(dot(N, H_Inv180));
+    float VdotH_Inv180 = saturate(dot(V, H_Inv180));
+
     float3 F0 = lerp(float3(0.04,0.04,0.04), surface_color, metallic);
 
     float D = GGX_Distribution(roughness, NdotH);
     float3 F = Fresnel(F0, VdotH);
     float G = GGX_Smith(roughness, NdotV, NdotL);
 
-    float D2 = GGX_Distribution(roughness, NdotH2);
-    float3 F2 = Fresnel(F0, VdotH2);
-    float G2 = GGX_Smith(roughness, NdotV, NdotL2);
+    float D2 = GGX_Distribution(roughness, NdotH_180);
+    float3 F2 = Fresnel(F0, VdotH_180);
+    float G2 = GGX_Smith(roughness, NdotV, NdotL_180);
 
-    float D3 = GGX_Distribution(roughness, NdotH3);
-    float3 F3 = Fresnel(F0, VdotH3);
-    float G3 = GGX_Smith(roughness, NdotV, NdotL3);
+    float D3 = GGX_Distribution(roughness, NdotH_Inv);
+    float3 F3 = Fresnel(F0, VdotH_Inv);
+    float G3 = GGX_Smith(roughness, NdotV, NdotL_Inv);
 
-    float D4 = GGX_Distribution(roughness, NdotH4);
-    float3 F4 = Fresnel(F0, VdotH4);
-    float G4 = GGX_Smith(roughness, NdotV, NdotL4);
+    float D4 = GGX_Distribution(roughness, NdotH_Inv180);
+    float3 F4 = Fresnel(F0, VdotH_Inv180);
+    float G4 = GGX_Smith(roughness, NdotV, NdotL_Inv180);
 
     // Put it all together or something
     float3 kd = (1.0 - F0) * (1.0 - metallic); // Mask out metal areas
@@ -168,9 +167,9 @@ float4 bump_spec_colorize_ps_main(VS_OUTPUT In): COLOR {
 
     // Specular
     float3 spec1 = (D * F * G) / max(4.0 * NdotL * NdotV, 0.001);
-    float3 spec2 = (D2 * F2 * G2) / max(4.0 * NdotL2 * NdotV, 0.001);
-    float3 spec3 = (D3 * F3 * G3) / max(4.0 * NdotL3 * NdotV, 0.001);
-    float3 spec4 = (D4 * F4 * G4) / max(4.0 * NdotL4 * NdotV, 0.001);
+    float3 spec2 = (D2 * F2 * G2) / max(4.0 * NdotL_180 * NdotV, 0.001);
+    float3 spec3 = (D3 * F3 * G3) / max(4.0 * NdotL_Inv * NdotV, 0.001);
+    float3 spec4 = (D4 * F4 * G4) / max(4.0 * NdotL_Inv180 * NdotV, 0.001);
 
     float3 specColor = lerp(m_light0Specular, float3(1,1,1) + m_light0Specular / 5.0f, (metallic));
     spec1 = saturate(spec1) * specColor;
@@ -198,7 +197,6 @@ float4 bump_spec_colorize_ps_main(VS_OUTPUT In): COLOR {
 
     // Note: spec_indirect & diffuse are more or less mutually exclusive
     // Spec_indirect is the reflections used by metal surfaces, so normal diffuse surfaces won't be visible normally
-
 
 
     //float3 color = (diffuse + spec) * m_light0Diffuse * NdotL + surface_color * In.Diff.rgb;
@@ -246,14 +244,9 @@ VS_OUTPUT sph_bump_spec_vs_main(VS_INPUT_MESH In) {
     // Note that we are doing everything in object space here.
     float3x3 to_tangent_matrix;
     to_tangent_matrix = Compute_To_Tangent_Matrix(In.Tangent, In.Binormal, In.Normal);
-    Out.LightVector1 = Compute_Tangent_Space_Light_Vector(m_light0ObjVector, to_tangent_matrix);
-    Out.LightVector2 = Compute_Tangent_Space_Light_Vector(float3(-m_light0ObjVector.x, -m_light0ObjVector.y, m_light0ObjVector.z), to_tangent_matrix);
-    Out.LightVector3 = Compute_Tangent_Space_Light_Vector(-m_light0ObjVector, to_tangent_matrix);
-    Out.LightVector4 = Compute_Tangent_Space_Light_Vector(float3(m_light0ObjVector.x, m_light0ObjVector.y, -m_light0ObjVector.z), to_tangent_matrix);
-
-
+    Out.LightVector = Compute_Tangent_Space_Light_Vector(m_light0ObjVector, to_tangent_matrix);
+    Out.LightVectorInv = Compute_Tangent_Space_Light_Vector(-m_light0ObjVector, to_tangent_matrix);
     Out.ViewVector = Compute_Tangent_Space_View_Vector(In.Pos, m_eyePosObj, to_tangent_matrix);
-
     //Out.HalfVector  = Compute_Tangent_Space_Half_Vector(In.Pos, m_eyePosObj, m_light0ObjVector, to_tangent_matrix);
 
     // Fill lighting is applied per-vertex.  This must be computed in
@@ -270,7 +263,6 @@ VS_OUTPUT sph_bump_spec_vs_main(VS_INPUT_MESH In) {
 
     // Output fog
     Out.Fog = Compute_Fog(Out.Pos.xyz);
-
     return Out;
 }
 
